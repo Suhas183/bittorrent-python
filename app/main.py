@@ -3,7 +3,7 @@ import sys
 import hashlib
 
 import bencodepy
-# import requests - available if you need it!
+import requests
 
 # Examples:
 #
@@ -62,6 +62,26 @@ def decode_bencode(bencoded_value):
     else:
         raise NotImplementedError("Only strings and numbers are supported at the moment")
 
+def get_decoded_value(bencoded_file):
+    f = open(bencoded_file, "rb")
+    bencoded_value = f.read()
+    f.close()
+    decoded_value,_ = decode_bencode(bencoded_value)
+    return decoded_value
+
+def announce_url(decoded_value):
+    return decoded_value['announce']
+
+def get_info_dict(decoded_value):
+    return decoded_value['info']
+
+def get_sha_info(info_dict):
+    bencoded_info_dict = bencodepy.encode(info_dict)
+    return hashlib.sha1(bencoded_info_dict).hexdigest()
+
+def url_encode(info_hash):
+    split_string = ''.join(['%' + info_hash[i:i+2] for i in range(0,len(info_hash),2)])
+    return split_string
 
 def main():
     command = sys.argv[1]
@@ -85,28 +105,58 @@ def main():
     
     elif command == 'info':
         bencoded_file = sys.argv[2]
-        def bytes_to_str(data):
-            if isinstance(data, bytes):
-                return data.decode()
-
-            raise TypeError(f"Type not serializable: {type(data)}")
-        f = open(bencoded_file, "rb")
-        bencoded_value = f.read()
-        decoded_value,_ = decode_bencode(bencoded_value)
-        info_dict = decoded_value['info']
-        bencoded_info_dict = bencodepy.encode(info_dict)
+        
+        decoded_value = get_decoded_value(bencoded_file)
+        url = announce_url(decoded_value)
+        info_dict = get_info_dict(decoded_value)
+        sha_info_hash = get_sha_info(info_dict)
+        
         pieces = info_dict['pieces']
         hex_string = pieces.hex()
-        sha_hash = hashlib.sha1(bencoded_info_dict).hexdigest()
         
-        print(f'Tracker URL: {decoded_value["announce"]}')
-        print(f'Length: {decoded_value["info"]["length"]}')
-        print(f'Info Hash: {sha_hash}')
+        print(f'Tracker URL: {url}')
+        print(f'Length: {info_dict["length"]}')
+        print(f'Info Hash: {sha_info_hash}')
         print(f'Piece Length: {info_dict["piece length"]}')
         print('Piece Hashes:')
         for i in range(0,len(hex_string),40):
             print(hex_string[i:i+40])
-     
+            
+    elif command == 'peers':
+        bencoded_file = sys.argv[2]
+        
+        decoded_value = get_decoded_value(bencoded_file)
+        url = announce_url(decoded_value)
+        info_dict = get_info_dict(decoded_value)
+        sha_info_hash = get_sha_info(info_dict)
+        
+        encoded_hash = url_encode(sha_info_hash)
+        peer_id = '3a5f9c1e2d4a8e3b0f6c'
+        port = 6881
+        uploaded = 0
+        downloaded = 0
+        left = info_dict['length']
+        compact = 1
+        
+        query_string = (
+            f"info_hash={encoded_hash}&"
+            f"peer_id={peer_id}&"
+            f"port={port}&"
+            f"uploaded={uploaded}&"
+            f"downloaded={downloaded}&"
+            f"left={left}&"
+            f"compact={compact}"
+        )
+        
+        complete_url = f"{url}?{query_string}"
+        r = requests.get(complete_url)
+        decoded_dict,_ = decode_bencode(r.content)
+        peers = decoded_dict['peers']
+        decimal_values = [byte for byte in peers]
+        for i in range(0,len(decimal_values),6):
+            ip_address = '.'.join(str(num) for num in decimal_values[i:i+4])
+            ip_address += f":{int.from_bytes(decimal_values[i+4:i+6], byteorder='big', signed=False)}"
+            print(ip_address)
     else:
         raise NotImplementedError(f"Unknown command {command}")   
 
