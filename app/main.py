@@ -14,7 +14,7 @@ def decode_string(bencoded_value):
         raise ValueError("Invalid encoded value")
     length = int(bencoded_value[:first_colon_index].decode())
     start_index = first_colon_index + 1
-    return bencoded_value[start_index:start_index + length].decode(), bencoded_value[start_index+length:]
+    return bencoded_value[start_index:start_index + length].decode('latin-1'), bencoded_value[start_index+length:]
 
 def decode_integer(bencoded_value):
     first_e_index = bencoded_value.find(b"e")
@@ -64,6 +64,7 @@ def main():
 
     if command == "decode":
         bencoded_value = sys.argv[2].encode()
+        
 
         # json.dumps() can't handle bytes, but bencoded "strings" need to be
         # bytestrings since they might contain non utf-8 characters.
@@ -77,8 +78,17 @@ def main():
         
         decoded_value,_ = decode_bencode(bencoded_value)
         print(json.dumps(decoded_value, default=bytes_to_str))
+    
+    elif command == 'info':
+        bencoded_file = sys.argv[2]
+        f = open(bencoded_file, "rb")
+        bencoded_value = f.read()
+        decoded_value,_ = decode_bencode(bencoded_value)
+        print(f'Tracker URL: {decoded_value["announce"]}')
+        print(f'Length: {decoded_value["info"]["length"]}')
+     
     else:
-        raise NotImplementedError(f"Unknown command {command}")
+           
 
 
 if __name__ == "__main__":
