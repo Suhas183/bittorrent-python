@@ -8,19 +8,39 @@ import sys
 #
 # - decode_bencode(b"5:hello") -> b"hello"
 # - decode_bencode(b"10:hello12345") -> b"hello12345"
+def decode_string(bencoded_value):
+    first_colon_index = bencoded_value.find(b":")
+    if first_colon_index == -1:
+        raise ValueError("Invalid encoded value")
+    length = int(bencoded_value[:first_colon_index].decode())
+    start_index = first_colon_index + 1
+    return bencoded_value[start_index:start_index + length], bencoded_value[start_index+length:]
+
+def decode_integer(bencoded_value):
+    first_e_index = bencoded_value.find(b"e")
+    if first_e_index == -1:
+        raise ValueError("Invalid encoded value")
+    decoded_string = bencoded_value[1:first_e_index].decode()
+    return int(decoded_string), bencoded_value[first_e_index+1:]
+
+def decode_list(bencoded_value):
+    decoded_list = []
+    i = 1
+    while bencoded_value[i] != ord('e'):
+        element, remaining = decode_bencode(bencoded_value[i:])
+        decoded_list.append(element)
+        i = len(bencoded_value) - len(remaining)
+    
+    return decoded_list, bencoded_value[i+1:]     
+    
+
 def decode_bencode(bencoded_value):
     if chr(bencoded_value[0]).isdigit():
-        first_colon_index = bencoded_value.find(b":")
-        if first_colon_index == -1:
-            raise ValueError("Invalid encoded value")
-        return bencoded_value[first_colon_index+1:]
-    elif chr(bencoded_value[0]) == 'i' and chr(bencoded_value[-1]) == 'e':
-        decoded_string = bencoded_value[1:-1].decode()
-        if decoded_string.startswith('-') and decoded_string[1:].isdigit():
-            return int(decoded_string)
-        elif decoded_string.isdigit():
-            return int(decoded_string)
-        raise ValueError("Invalid encoded value")
+        return decode_string(bencoded_value)
+    elif chr(bencoded_value[0]) == 'i':
+        return decode_integer(bencoded_value)
+    elif chr(bencoded_value[0]) == 'l':
+        return decode_list(bencoded_value)          
     else:
         raise NotImplementedError("Only strings and numbers are supported at the moment")
 
@@ -40,8 +60,9 @@ def main():
                 return data.decode()
 
             raise TypeError(f"Type not serializable: {type(data)}")
-
-        print(json.dumps(decode_bencode(bencoded_value), default=bytes_to_str))
+        
+        decoded_value,_ = decode_bencode(bencoded_value)
+        print(json.dumps(decoded_value, default=bytes_to_str))
     else:
         raise NotImplementedError(f"Unknown command {command}")
 
