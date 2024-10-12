@@ -17,7 +17,7 @@ def decode_bencode(bencoded_value):
     elif chr(bencoded_value[0]) == 'i' and chr(bencoded_value[-1]) == 'e':
         if not bencoded_value[1:-1].decode().isdigit():
             raise ValueError("Invalid encoded value")
-        return bencoded_value[1:-1]
+        return int(bencoded_value[1:-1].decode())
     else:
         raise NotImplementedError("Only strings and numbers are supported at the moment")
 
