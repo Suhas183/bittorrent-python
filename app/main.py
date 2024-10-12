@@ -96,8 +96,7 @@ def main():
         info_dict = decoded_value['info']
         bencoded_info_dict = bencodepy.encode(info_dict)
         pieces = info_dict['pieces']
-        pieces_list = [pieces[i:i+20] for i in range(0, len(pieces), 20)]
-        sha1_hashed_pieces = [hashlib.sha1(piece).hexdigest() for piece in pieces_list]
+        hex_string = pieces.hex()
         sha_hash = hashlib.sha1(bencoded_info_dict).hexdigest()
         
         print(f'Tracker URL: {decoded_value["announce"]}')
@@ -105,8 +104,8 @@ def main():
         print(f'Info Hash: {sha_hash}')
         print(f'Piece Length: {info_dict["piece length"]}')
         print('Piece Hashes:')
-        for piece in sha1_hashed_pieces:
-            print(piece)
+        for i in range(0,len(hex_string),40):
+            print(hex_string[i:i+40])
      
     else:
         raise NotImplementedError(f"Unknown command {command}")   
