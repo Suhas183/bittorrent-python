@@ -4,6 +4,7 @@ import hashlib
 
 import bencodepy
 import requests
+import socket
 
 # Examples:
 #
@@ -83,6 +84,32 @@ def url_encode(info_hash):
     split_string = ''.join(['%' + info_hash[i:i+2] for i in range(0,len(info_hash),2)])
     return split_string
 
+def ping_peer(peer_ip, peer_port, info_hash, peer_id):
+    info_hash = bytes.fromhex(info_hash)
+    s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+    s.connect((peer_ip,peer_port))
+        
+    protocol_length = 19
+    protocol_length_bytes = protocol_length.to_bytes(1,byteorder='big')
+    s.sendall(protocol_length_bytes)
+    
+    message = 'BitTorrent protocol'
+    s.sendall(message.encode('utf-8'))
+    
+    reserved_bytes = b'\x00' * 8
+    s.sendall(reserved_bytes)
+    
+    s.sendall(info_hash)
+    
+    s.sendall(peer_id.encode('utf-8'))
+    
+    s.recv(1)
+    s.recv(19)
+    s.recv(8)
+    s.recv(20)
+    response_peer_id = s.recv(20).hex()
+    print(f'Peer ID: {response_peer_id}')
+
 def main():
     command = sys.argv[1]
 
@@ -157,6 +184,22 @@ def main():
             ip_address = '.'.join(str(num) for num in decimal_values[i:i+4])
             ip_address += f":{int.from_bytes(decimal_values[i+4:i+6], byteorder='big', signed=False)}"
             print(ip_address)
+    elif command == 'handshake':
+        bencoded_file = sys.argv[2]
+        peer_details = sys.argv[3]
+        
+        peer_ip, peer_port = peer_details.split(':')
+        print(peer_ip,peer_port)
+        peer_port = int(peer_port)
+        
+        decoded_value = get_decoded_value(bencoded_file)
+        url = announce_url(decoded_value)
+        info_dict = get_info_dict(decoded_value)
+        sha_info_hash = get_sha_info(info_dict)
+        
+        peer_id = '3a5f9c1e2d4a8e3b0f6c'
+        ping_peer(peer_ip,peer_port,sha_info_hash,peer_id)
+                   
     else:
         raise NotImplementedError(f"Unknown command {command}")   
 
