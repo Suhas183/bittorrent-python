@@ -2,7 +2,7 @@ import json
 import sys
 import hashlib
 
-# import bencodepy - available if you need it!
+import bencodepy
 # import requests - available if you need it!
 
 # Examples:
@@ -18,7 +18,7 @@ def decode_string(bencoded_value):
     try:
         return bencoded_value[start_index:start_index + length].decode('utf-8'), bencoded_value[start_index+length:]
     except:
-        return bencoded_value[start_index:start_index + length].hex(), bencoded_value[start_index+length:]
+        return bencoded_value[start_index:start_index + length], bencoded_value[start_index+length:]
 
 def decode_integer(bencoded_value):
     first_e_index = bencoded_value.find(b"e")
@@ -93,12 +93,13 @@ def main():
         f = open(bencoded_file, "rb")
         bencoded_value = f.read()
         decoded_value,_ = decode_bencode(bencoded_value)
-        decoded_sha_dict = json.dumps(decoded_value['info'], default=bytes_to_str)
-        json_bytes = decoded_sha_dict.encode('utf-8')
-        sha1_hash = hashlib.sha1(json_bytes).hexdigest()
+        info_dict = decoded_value['info']
+        bencoded_info_dict = bencodepy.encode(info_dict)
+        sha_hash = hashlib.sha1(bencoded_info_dict).hexdigest()
+        
         print(f'Tracker URL: {decoded_value["announce"]}')
         print(f'Length: {decoded_value["info"]["length"]}')
-        print(f'Info Hash: {sha1_hash}')
+        print(f'Info Hash: {sha_hash}')
      
     else:
         raise NotImplementedError(f"Unknown command {command}")   
