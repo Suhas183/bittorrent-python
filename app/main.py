@@ -88,7 +88,7 @@ def main():
         print(f'Length: {decoded_value["info"]["length"]}')
      
     else:
-           
+        raise NotImplementedError(f"Unknown command {command}")   
 
 
 if __name__ == "__main__":
