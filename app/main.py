@@ -1,5 +1,6 @@
 import json
 import sys
+import hashlib
 
 # import bencodepy - available if you need it!
 # import requests - available if you need it!
@@ -81,11 +82,20 @@ def main():
     
     elif command == 'info':
         bencoded_file = sys.argv[2]
+        def bytes_to_str(data):
+            if isinstance(data, bytes):
+                return data.decode()
+
+            raise TypeError(f"Type not serializable: {type(data)}")
         f = open(bencoded_file, "rb")
         bencoded_value = f.read()
         decoded_value,_ = decode_bencode(bencoded_value)
+        decoded_sha_dict = json.dumps(decoded_value['info'], default=bytes_to_str)
+        json_bytes = decoded_sha_dict.encode('utf-8')
+        sha1_hash = hashlib.sha1(json_bytes).hexdigest()
         print(f'Tracker URL: {decoded_value["announce"]}')
         print(f'Length: {decoded_value["info"]["length"]}')
+        print(f'Info Hash: {sha1_hash}')
      
     else:
         raise NotImplementedError(f"Unknown command {command}")   
