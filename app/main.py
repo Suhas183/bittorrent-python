@@ -14,7 +14,7 @@ def decode_string(bencoded_value):
         raise ValueError("Invalid encoded value")
     length = int(bencoded_value[:first_colon_index].decode())
     start_index = first_colon_index + 1
-    return bencoded_value[start_index:start_index + length], bencoded_value[start_index+length:]
+    return bencoded_value[start_index:start_index + length].decode(), bencoded_value[start_index+length:]
 
 def decode_integer(bencoded_value):
     first_e_index = bencoded_value.find(b"e")
@@ -31,7 +31,19 @@ def decode_list(bencoded_value):
         decoded_list.append(element)
         i = len(bencoded_value) - len(remaining)
     
-    return decoded_list, bencoded_value[i+1:]     
+    return decoded_list, bencoded_value[i+1:]
+
+def decode_dict(bencoded_value):
+    decoded_dict = {}
+    i = 1
+    while bencoded_value[i] != ord('e'):
+        key, remaining = decode_bencode(bencoded_value[i:])
+        i = len(bencoded_value) - len(remaining)
+        value, remaining = decode_bencode(bencoded_value[i:])
+        i = len(bencoded_value) - len(remaining)
+        decoded_dict[key] = value
+    
+    return decoded_dict, bencoded_value[i+1:]     
     
 
 def decode_bencode(bencoded_value):
@@ -40,7 +52,9 @@ def decode_bencode(bencoded_value):
     elif chr(bencoded_value[0]) == 'i':
         return decode_integer(bencoded_value)
     elif chr(bencoded_value[0]) == 'l':
-        return decode_list(bencoded_value)          
+        return decode_list(bencoded_value)    
+    elif chr(bencoded_value[0]) == 'd':
+        return decode_dict(bencoded_value)      
     else:
         raise NotImplementedError("Only strings and numbers are supported at the moment")
 
