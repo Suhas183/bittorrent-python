@@ -15,10 +15,7 @@ def decode_string(bencoded_value):
         raise ValueError("Invalid encoded value")
     length = int(bencoded_value[:first_colon_index].decode())
     start_index = first_colon_index + 1
-    try:
-        return bencoded_value[start_index:start_index + length].decode('utf-8'), bencoded_value[start_index+length:]
-    except:
-        return bencoded_value[start_index:start_index + length].hex(), bencoded_value[start_index+length:]
+    return bencoded_value[start_index:start_index + length].decode('latin-1'), bencoded_value[start_index+length:]
 
 def decode_integer(bencoded_value):
     first_e_index = bencoded_value.find(b"e")
@@ -92,6 +89,7 @@ def main():
             raise TypeError(f"Type not serializable: {type(data)}")
         f = open(bencoded_file, "rb")
         bencoded_value = f.read()
+        print(bencoded_value)
         decoded_value,_ = decode_bencode(bencoded_value)
         decoded_sha_dict = json.dumps(decoded_value['info'], default=bytes_to_str)
         json_bytes = decoded_sha_dict.encode('utf-8')
