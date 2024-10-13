@@ -292,7 +292,57 @@ def main():
         
         with open(download_location, "wb") as f:  # Use "wb" for binary write mode
             f.write(result_data)  # No need to decode
-   
+    elif command=='download':
+        download_location = sys.argv[3] 
+        torrent_file = sys.argv[4]
+        
+        decoded_value = get_decoded_value(torrent_file)
+        url = announce_url(decoded_value)
+        info_dict = get_info_dict(decoded_value)
+        sha_info_hash = get_sha_info(info_dict)
+        
+        ip_addresses = get_peer_address(torrent_file)
+        peer_ip, peer_port = ip_addresses[0].split(':')
+        peer_port = int(peer_port)
+        
+        peer_id = '3a5f9c1e2d4a8e3b0f6c'
+        s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+        response_peer_id = ping_peer(peer_ip,peer_port,sha_info_hash,peer_id, s)
+        
+        total_length = info_dict['length']
+        piece_length = info_dict['piece length']
+        
+        # Bitfield
+        s.recv(4)
+        s.recv(1)
+        s.recv(4)
+        
+        # Interested
+        s.sendall(b'\x00\x00\x00\x01')
+        s.sendall(b'\x02')
+
+        # Unchoke
+        s.recv(4)
+        s.recv(1)
+        
+        for i in range(0,total_length,piece_length):
+            curr_piece_length = min(piece_length,total_length-i)
+            block_size = 2**14
+            curr_sent_data_size = 0
+            iterations = 0
+            
+            while curr_sent_data_size < curr_piece_length:
+                data_size_to_send = min(block_size,curr_piece_length-curr_sent_data_size)
+                curr_sent_data_size += data_size_to_send
+                send_data(s,i//piece_length,iterations*block_size,data_size_to_send)
+                iterations += 1
+        
+            result_data = b''
+            for i in range(0,iterations):
+                result_data += receive_data(s)
+            
+            with open(download_location, "ab") as f:
+                f.write(result_data)
     else:
         raise NotImplementedError(f"Unknown command {command}")   
 
