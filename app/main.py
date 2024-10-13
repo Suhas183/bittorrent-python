@@ -5,6 +5,7 @@ import hashlib
 import bencodepy
 import requests
 import socket
+import struct
 
 # Examples:
 #
@@ -84,9 +85,8 @@ def url_encode(info_hash):
     split_string = ''.join(['%' + info_hash[i:i+2] for i in range(0,len(info_hash),2)])
     return split_string
 
-def ping_peer(peer_ip, peer_port, info_hash, peer_id):
+def ping_peer(peer_ip, peer_port, info_hash, peer_id, s):
     info_hash = bytes.fromhex(info_hash)
-    s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
     s.connect((peer_ip,peer_port))
         
     protocol_length = 19
@@ -107,8 +107,76 @@ def ping_peer(peer_ip, peer_port, info_hash, peer_id):
     s.recv(19)
     s.recv(8)
     s.recv(20)
-    response_peer_id = s.recv(20).hex()
-    print(f'Peer ID: {response_peer_id}')
+    return s.recv(20).hex()
+    
+def get_peer_address(bencoded_file):
+    decoded_value = get_decoded_value(bencoded_file)
+    url = announce_url(decoded_value)
+    info_dict = get_info_dict(decoded_value)
+    sha_info_hash = get_sha_info(info_dict)
+    
+    encoded_hash = url_encode(sha_info_hash)
+    peer_id = '3a5f9c1e2d4a8e3b0f6c'
+    port = 6881
+    uploaded = 0
+    downloaded = 0
+    left = info_dict['length']
+    compact = 1
+    
+    query_string = (
+        f"info_hash={encoded_hash}&"
+        f"peer_id={peer_id}&"
+        f"port={port}&"
+        f"uploaded={uploaded}&"
+        f"downloaded={downloaded}&"
+        f"left={left}&"
+        f"compact={compact}"
+    )
+    
+    complete_url = f"{url}?{query_string}"
+    r = requests.get(complete_url)
+    decoded_dict,_ = decode_bencode(r.content)
+    peers = decoded_dict['peers']
+    decimal_values = [byte for byte in peers]
+    
+    ip_address_list = []
+    for i in range(0,len(decimal_values),6):
+        ip_address = '.'.join(str(num) for num in decimal_values[i:i+4])
+        ip_address += f":{int.from_bytes(decimal_values[i+4:i+6], byteorder='big', signed=False)}"
+        ip_address_list.append(ip_address)
+     
+    return ip_address_list    
+
+def receive_large_data(s,size):
+    result_data = b''
+    curr_size = 0
+    
+    while curr_size < size:
+        data_size_to_receive = min(4096,size-curr_size)
+        temp_data = s.recv(data_size_to_receive)
+        curr_size += len(temp_data)
+        result_data += temp_data
+    return result_data
+
+def integer_to_byte(integer):
+    return struct.pack('>I', integer)
+
+def byte_to_integer(byte):
+    return struct.unpack('>I', byte)[0]
+
+def send_data(s,piece_offset,block_offset,data_length):
+    s.sendall(b'\x00\x00\x00\x0d')
+    s.sendall(b'\x06')
+    s.sendall(integer_to_byte(piece_offset))
+    s.sendall(integer_to_byte(block_offset))
+    s.sendall(integer_to_byte(data_length))
+    
+def receive_data(s):
+    payload_size = byte_to_integer(s.recv(4))
+    s.recv(1)
+    s.recv(4)
+    s.recv(4)
+    return receive_large_data(s,payload_size-9)
 
 def main():
     command = sys.argv[1]
@@ -152,44 +220,15 @@ def main():
     elif command == 'peers':
         bencoded_file = sys.argv[2]
         
-        decoded_value = get_decoded_value(bencoded_file)
-        url = announce_url(decoded_value)
-        info_dict = get_info_dict(decoded_value)
-        sha_info_hash = get_sha_info(info_dict)
-        
-        encoded_hash = url_encode(sha_info_hash)
-        peer_id = '3a5f9c1e2d4a8e3b0f6c'
-        port = 6881
-        uploaded = 0
-        downloaded = 0
-        left = info_dict['length']
-        compact = 1
-        
-        query_string = (
-            f"info_hash={encoded_hash}&"
-            f"peer_id={peer_id}&"
-            f"port={port}&"
-            f"uploaded={uploaded}&"
-            f"downloaded={downloaded}&"
-            f"left={left}&"
-            f"compact={compact}"
-        )
-        
-        complete_url = f"{url}?{query_string}"
-        r = requests.get(complete_url)
-        decoded_dict,_ = decode_bencode(r.content)
-        peers = decoded_dict['peers']
-        decimal_values = [byte for byte in peers]
-        for i in range(0,len(decimal_values),6):
-            ip_address = '.'.join(str(num) for num in decimal_values[i:i+4])
-            ip_address += f":{int.from_bytes(decimal_values[i+4:i+6], byteorder='big', signed=False)}"
+        ip_address_list = get_peer_address(bencoded_file)
+        for ip_address in ip_address_list:
             print(ip_address)
+            
     elif command == 'handshake':
         bencoded_file = sys.argv[2]
         peer_details = sys.argv[3]
         
         peer_ip, peer_port = peer_details.split(':')
-        print(peer_ip,peer_port)
         peer_port = int(peer_port)
         
         decoded_value = get_decoded_value(bencoded_file)
@@ -198,8 +237,62 @@ def main():
         sha_info_hash = get_sha_info(info_dict)
         
         peer_id = '3a5f9c1e2d4a8e3b0f6c'
-        ping_peer(peer_ip,peer_port,sha_info_hash,peer_id)
-                   
+        s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+        response_peer_id = ping_peer(peer_ip,peer_port,sha_info_hash,peer_id, s)
+        print(f'Peer ID: {response_peer_id}')
+        
+    elif command == 'download_piece':
+        download_location = sys.argv[3] 
+        torrent_file = sys.argv[4]
+        piece = int(sys.argv[5])
+        
+        decoded_value = get_decoded_value(torrent_file)
+        url = announce_url(decoded_value)
+        info_dict = get_info_dict(decoded_value)
+        sha_info_hash = get_sha_info(info_dict)
+        
+        ip_addresses = get_peer_address(torrent_file)
+        peer_ip, peer_port = ip_addresses[0].split(':')
+        peer_port = int(peer_port)
+        
+        peer_id = '3a5f9c1e2d4a8e3b0f6c'
+        s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+        response_peer_id = ping_peer(peer_ip,peer_port,sha_info_hash,peer_id, s)
+        
+        total_length = info_dict['length']
+        piece_length = info_dict['piece length']
+        piece_length = min(piece_length,total_length - piece*piece_length)
+        
+        # Bitfield
+        s.recv(4)
+        s.recv(1)
+        s.recv(4)
+        
+        # Interested
+        s.sendall(b'\x00\x00\x00\x01')
+        s.sendall(b'\x02')
+
+        # Unchoke
+        s.recv(4)
+        s.recv(1)
+        
+        block_size = 2**14
+        curr_sent_data_size = 0
+        iterations = 0
+        
+        while curr_sent_data_size < piece_length:
+            data_size_to_send = min(block_size,piece_length-curr_sent_data_size)
+            curr_sent_data_size += data_size_to_send
+            send_data(s,piece,iterations*block_size,data_size_to_send)
+            iterations += 1
+        
+        result_data = b''
+        for i in range(0,iterations):
+            result_data += receive_data(s)
+        
+        with open(download_location, "wb") as f:  # Use "wb" for binary write mode
+            f.write(result_data)  # No need to decode
+   
     else:
         raise NotImplementedError(f"Unknown command {command}")   
 
