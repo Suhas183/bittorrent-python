@@ -6,6 +6,7 @@ import bencodepy
 import requests
 import socket
 import struct
+import urllib.parse
 
 # Examples:
 #
@@ -343,6 +344,14 @@ def main():
             
             with open(download_location, "ab") as f:
                 f.write(result_data)
+    elif command == 'magnet_parse':
+        magnet_link = sys.argv[2]
+        info_hash_location = magnet_link.find('btih:') + 5
+        info_hash = magnet_link[info_hash_location:info_hash_location+40]
+        url_location = magnet_link.find('tr=') + 3
+        url = magnet_link[url_location:]
+        print(f'Tracker URL: {urllib.parse.unquote(url)}') 
+        print(f'Info Hash: {info_hash}')            
     else:
         raise NotImplementedError(f"Unknown command {command}")   
 
