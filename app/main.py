@@ -86,7 +86,7 @@ def url_encode(info_hash):
     split_string = ''.join(['%' + info_hash[i:i+2] for i in range(0,len(info_hash),2)])
     return split_string
 
-def ping_peer(peer_ip, peer_port, info_hash, peer_id, s):
+def ping_peer_torrent(peer_ip, peer_port, info_hash, peer_id, s):
     info_hash = bytes.fromhex(info_hash)
     s.connect((peer_ip,peer_port))
         
@@ -109,8 +109,32 @@ def ping_peer(peer_ip, peer_port, info_hash, peer_id, s):
     s.recv(8)
     s.recv(20)
     return s.recv(20).hex()
+
+def ping_peer_magnet(peer_ip, peer_port, info_hash, peer_id, s):
+    info_hash = bytes.fromhex(info_hash)
+    s.connect((peer_ip,peer_port))
+        
+    protocol_length = 19
+    protocol_length_bytes = protocol_length.to_bytes(1,byteorder='big')
+    s.sendall(protocol_length_bytes)
     
-def get_peer_address(bencoded_file):
+    message = 'BitTorrent protocol'
+    s.sendall(message.encode('utf-8'))
+    
+    reserved_bytes = b'\x00\x00\x00\x00\x00\x10\x00\x00'
+    s.sendall(reserved_bytes)
+    
+    s.sendall(info_hash)
+    
+    s.sendall(peer_id.encode('utf-8'))
+    
+    s.recv(1)
+    s.recv(19)
+    s.recv(8)
+    s.recv(20)
+    return s.recv(20).hex()
+    
+def get_peer_address_torrent(bencoded_file):
     decoded_value = get_decoded_value(bencoded_file)
     url = announce_url(decoded_value)
     info_dict = get_info_dict(decoded_value)
@@ -146,7 +170,40 @@ def get_peer_address(bencoded_file):
         ip_address += f":{int.from_bytes(decimal_values[i+4:i+6], byteorder='big', signed=False)}"
         ip_address_list.append(ip_address)
      
-    return ip_address_list    
+    return ip_address_list
+
+def get_peer_address_magnet(url, sha_info_hash):  
+    encoded_hash = url_encode(sha_info_hash)
+    peer_id = '3a5f9c1e2d4a8e3b0f6c'
+    port = 6881
+    uploaded = 0
+    downloaded = 0
+    left = 999
+    compact = 1
+    
+    query_string = (
+        f"info_hash={encoded_hash}&"
+        f"peer_id={peer_id}&"
+        f"port={port}&"
+        f"uploaded={uploaded}&"
+        f"downloaded={downloaded}&"
+        f"left={left}&"
+        f"compact={compact}"
+    )
+    
+    complete_url = f"{url}?{query_string}"
+    r = requests.get(complete_url)
+    decoded_dict,_ = decode_bencode(r.content)
+    peers = decoded_dict['peers']
+    decimal_values = [byte for byte in peers]
+    
+    ip_address_list = []
+    for i in range(0,len(decimal_values),6):
+        ip_address = '.'.join(str(num) for num in decimal_values[i:i+4])
+        ip_address += f":{int.from_bytes(decimal_values[i+4:i+6], byteorder='big', signed=False)}"
+        ip_address_list.append(ip_address)
+     
+    return ip_address_list     
 
 def receive_large_data(s,size):
     result_data = b''
@@ -221,7 +278,7 @@ def main():
     elif command == 'peers':
         bencoded_file = sys.argv[2]
         
-        ip_address_list = get_peer_address(bencoded_file)
+        ip_address_list = get_peer_address_torrent(bencoded_file)
         for ip_address in ip_address_list:
             print(ip_address)
             
@@ -239,7 +296,7 @@ def main():
         
         peer_id = '3a5f9c1e2d4a8e3b0f6c'
         s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-        response_peer_id = ping_peer(peer_ip,peer_port,sha_info_hash,peer_id, s)
+        response_peer_id = ping_peer_torrent(peer_ip,peer_port,sha_info_hash,peer_id, s)
         print(f'Peer ID: {response_peer_id}')
         
     elif command == 'download_piece':
@@ -252,13 +309,13 @@ def main():
         info_dict = get_info_dict(decoded_value)
         sha_info_hash = get_sha_info(info_dict)
         
-        ip_addresses = get_peer_address(torrent_file)
+        ip_addresses = get_peer_address_torrent(torrent_file)
         peer_ip, peer_port = ip_addresses[0].split(':')
         peer_port = int(peer_port)
         
         peer_id = '3a5f9c1e2d4a8e3b0f6c'
         s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-        response_peer_id = ping_peer(peer_ip,peer_port,sha_info_hash,peer_id, s)
+        response_peer_id = ping_peer_torrent(peer_ip,peer_port,sha_info_hash,peer_id, s)
         
         total_length = info_dict['length']
         piece_length = info_dict['piece length']
@@ -293,6 +350,7 @@ def main():
         
         with open(download_location, "wb") as f:  # Use "wb" for binary write mode
             f.write(result_data)  # No need to decode
+            
     elif command=='download':
         download_location = sys.argv[3] 
         torrent_file = sys.argv[4]
@@ -302,13 +360,13 @@ def main():
         info_dict = get_info_dict(decoded_value)
         sha_info_hash = get_sha_info(info_dict)
         
-        ip_addresses = get_peer_address(torrent_file)
+        ip_addresses = get_peer_address_torrent(torrent_file)
         peer_ip, peer_port = ip_addresses[0].split(':')
         peer_port = int(peer_port)
         
         peer_id = '3a5f9c1e2d4a8e3b0f6c'
         s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-        response_peer_id = ping_peer(peer_ip,peer_port,sha_info_hash,peer_id, s)
+        response_peer_id = ping_peer_torrent(peer_ip,peer_port,sha_info_hash,peer_id, s)
         
         total_length = info_dict['length']
         piece_length = info_dict['piece length']
@@ -344,6 +402,7 @@ def main():
             
             with open(download_location, "ab") as f:
                 f.write(result_data)
+                
     elif command == 'magnet_parse':
         magnet_link = sys.argv[2]
         info_hash_location = magnet_link.find('btih:') + 5
@@ -351,7 +410,23 @@ def main():
         url_location = magnet_link.find('tr=') + 3
         url = magnet_link[url_location:]
         print(f'Tracker URL: {urllib.parse.unquote(url)}') 
-        print(f'Info Hash: {info_hash}')            
+        print(f'Info Hash: {info_hash}')  
+          
+    elif command == 'magnet_handshake':
+        magnet_link = sys.argv[2]  
+        info_hash_location = magnet_link.find('btih:') + 5
+        info_hash = magnet_link[info_hash_location:info_hash_location+40]
+        url_location = magnet_link.find('tr=') + 3
+        url = magnet_link[url_location:]  
+        url = urllib.parse.unquote(url)
+        ip_addresses = get_peer_address_magnet(url,info_hash)
+        peer_ip, peer_port = ip_addresses[0].split(':')
+        peer_port = int(peer_port)
+        
+        peer_id = '3a5f9c1e2d4a8e3b0f6c'
+        s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+        response_peer_id = ping_peer_magnet(peer_ip,peer_port,info_hash,peer_id, s)
+        print(f'Peer ID: {response_peer_id}')     
     else:
         raise NotImplementedError(f"Unknown command {command}")   
 
