@@ -446,7 +446,8 @@ def main():
         payload_size = byte_to_integer(s.recv(4)) - 2
         s.recv(1)
         s.recv(1)
-        handshake_message = decode_bencode(s.recv(payload_size))
+        handshake_message = s.recv(payload_size)
+        handshake_message = decode_bencode(handshake_message)
         print(f'Peer Metadata Extension ID: {handshake_message[0]['m']['ut_metadata']}')    
     else:
         raise NotImplementedError(f"Unknown command {command}")   
