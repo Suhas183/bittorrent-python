@@ -446,7 +446,8 @@ def main():
         payload_size = byte_to_integer(s.recv(4)) - 2
         s.recv(1)
         s.recv(1)
-        s.recv(payload_size)    
+        handshake_message = decode_bencode(s.recv(payload_size))
+        print(handshake_message)    
     else:
         raise NotImplementedError(f"Unknown command {command}")   
 
