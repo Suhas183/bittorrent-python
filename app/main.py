@@ -169,6 +169,7 @@ def receive_large_data(s,size):
         print(len(temp_data))
         curr_size += len(temp_data)
         result_data += temp_data
+        print(curr_size)
     return result_data
 
 def integer_to_byte(integer):
