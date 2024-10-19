@@ -457,7 +457,7 @@ def main():
         
         request_metadata = {
             'msg_type': 0,
-            'piece': 0
+            'piece': piece
         }
         
         request_metadata = bencodepy.encode(request_metadata)
