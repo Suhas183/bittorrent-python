@@ -157,19 +157,32 @@ def get_peer_address(url, left, sha_info_hash):
      
     return ip_address_list  
 
-def receive_large_data(s,size):
+def receive_large_data(s, size):
     result_data = b''
     curr_size = 0
     
     print(size)
     while curr_size < size:
-        data_size_to_receive = min(4096,size-curr_size)
-        print(data_size_to_receive)
-        temp_data = s.recv(data_size_to_receive)
-        print(len(temp_data))
-        curr_size += len(temp_data)
-        result_data += temp_data
-        print(curr_size)
+        try:
+            # Receive in chunks of 4096 or the remaining bytes
+            data_size_to_receive = min(4096, size - curr_size)
+            print(f"Receiving: {data_size_to_receive} bytes")
+            temp_data = s.recv(data_size_to_receive)
+
+            # If the server closes the connection gracefully, recv() will return an empty byte string
+            if not temp_data:
+                print("Connection closed by the peer.")
+                break
+
+            curr_size += len(temp_data)
+            result_data += temp_data
+            print(f"Received: {curr_size}/{size} bytes")
+
+        except ConnectionResetError:
+            print("Connection reset by peer. Trying to reconnect or handle failure.")
+            # Handle the connection reset gracefully here, possibly by retrying or breaking the loop
+            break
+    
     return result_data
 
 def integer_to_byte(integer):
