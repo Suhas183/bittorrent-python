@@ -86,7 +86,7 @@ def url_encode(info_hash):
     split_string = ''.join(['%' + info_hash[i:i+2] for i in range(0,len(info_hash),2)])
     return split_string
 
-def ping_peer_torrent(peer_ip, peer_port, info_hash, peer_id, s):
+def ping_peer(peer_ip, peer_port, info_hash, peer_id, s, torrent_file):
     info_hash = bytes.fromhex(info_hash)
     s.connect((peer_ip,peer_port))
         
@@ -97,88 +97,50 @@ def ping_peer_torrent(peer_ip, peer_port, info_hash, peer_id, s):
     message = 'BitTorrent protocol'
     s.sendall(message.encode('utf-8'))
     
-    reserved_bytes = b'\x00' * 8
+    reserved_bytes = b''
+    if torrent_file:
+        reserved_bytes = b'\x00' * 8
+    else:
+        reserved_bytes = b'\x00\x00\x00\x00\x00\x10\x00\x00'   
+    
     s.sendall(reserved_bytes)
-    
     s.sendall(info_hash)
-    
     s.sendall(peer_id.encode('utf-8'))
-    
+
     s.recv(1)
     s.recv(19)
     s.recv(8)
     s.recv(20)
     return s.recv(20).hex()
 
+
 def ping_peer_magnet(peer_ip, peer_port, info_hash, peer_id, s):
     info_hash = bytes.fromhex(info_hash)
     s.connect((peer_ip,peer_port))
-        
-    protocol_length = 19
-    protocol_length_bytes = protocol_length.to_bytes(1,byteorder='big')
-    s.sendall(protocol_length_bytes)
     
-    message = 'BitTorrent protocol'
-    s.sendall(message.encode('utf-8'))
-    
-    reserved_bytes = b'\x00\x00\x00\x00\x00\x10\x00\x00'
-    s.sendall(reserved_bytes)
-    
-    s.sendall(info_hash)
-    
-    s.sendall(peer_id.encode('utf-8'))
-    
-    s.recv(1)
-    s.recv(19)
-    s.recv(8)
-    s.recv(20)
-    return s.recv(20).hex()
+def ping_peer_magnet(peer_ip, peer_port, info_hash, peer_id, s):
+    info_hash = bytes.fromhex(info_hash)
+    s.connect((peer_ip,peer_port))
     
 def get_peer_address_torrent(bencoded_file):
     decoded_value = get_decoded_value(bencoded_file)
     url = announce_url(decoded_value)
     info_dict = get_info_dict(decoded_value)
     sha_info_hash = get_sha_info(info_dict)
-    
-    encoded_hash = url_encode(sha_info_hash)
-    peer_id = '3a5f9c1e2d4a8e3b0f6c'
-    port = 6881
-    uploaded = 0
-    downloaded = 0
-    left = info_dict['length']
-    compact = 1
-    
-    query_string = (
-        f"info_hash={encoded_hash}&"
-        f"peer_id={peer_id}&"
-        f"port={port}&"
-        f"uploaded={uploaded}&"
-        f"downloaded={downloaded}&"
-        f"left={left}&"
-        f"compact={compact}"
-    )
-    
-    complete_url = f"{url}?{query_string}"
-    r = requests.get(complete_url)
-    decoded_dict,_ = decode_bencode(r.content)
-    peers = decoded_dict['peers']
-    decimal_values = [byte for byte in peers]
-    
-    ip_address_list = []
-    for i in range(0,len(decimal_values),6):
-        ip_address = '.'.join(str(num) for num in decimal_values[i:i+4])
-        ip_address += f":{int.from_bytes(decimal_values[i+4:i+6], byteorder='big', signed=False)}"
-        ip_address_list.append(ip_address)
-     
-    return ip_address_list
 
-def get_peer_address_magnet(url, sha_info_hash):  
+def get_peer_address_torrent(bencoded_file):
+    decoded_value = get_decoded_value(bencoded_file)
+    url = announce_url(decoded_value)
+    info_dict = get_info_dict(decoded_value)
+    sha_info_hash = get_sha_info(info_dict)
+
+def get_peer_address(url, left, sha_info_hash):
+    
     encoded_hash = url_encode(sha_info_hash)
     peer_id = '3a5f9c1e2d4a8e3b0f6c'
     port = 6881
     uploaded = 0
     downloaded = 0
-    left = 999
     compact = 1
     
     query_string = (
@@ -203,7 +165,7 @@ def get_peer_address_magnet(url, sha_info_hash):
         ip_address += f":{int.from_bytes(decimal_values[i+4:i+6], byteorder='big', signed=False)}"
         ip_address_list.append(ip_address)
      
-    return ip_address_list     
+    return ip_address_list  
 
 def receive_large_data(s,size):
     result_data = b''
@@ -235,6 +197,15 @@ def receive_data(s):
     s.recv(4)
     s.recv(4)
     return receive_large_data(s,payload_size-9)
+
+def recv_exact(sock, num_bytes):
+    received_data = b''
+    while len(received_data) < num_bytes:
+        chunk = sock.recv(num_bytes - len(received_data))
+        if not chunk:
+            raise ConnectionError("Connection closed before receiving the expected number of bytes")
+        received_data += chunk
+    return received_data
 
 def main():
     command = sys.argv[1]
@@ -278,7 +249,12 @@ def main():
     elif command == 'peers':
         bencoded_file = sys.argv[2]
         
-        ip_address_list = get_peer_address_torrent(bencoded_file)
+        decoded_value = get_decoded_value(bencoded_file)
+        url = announce_url(decoded_value)
+        info_dict = get_info_dict(decoded_value)
+        sha_info_hash = get_sha_info(info_dict)
+        
+        ip_address_list = get_peer_address(url, info_dict['length'], sha_info_hash)
         for ip_address in ip_address_list:
             print(ip_address)
             
@@ -296,7 +272,7 @@ def main():
         
         peer_id = '3a5f9c1e2d4a8e3b0f6c'
         s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-        response_peer_id = ping_peer_torrent(peer_ip,peer_port,sha_info_hash,peer_id, s)
+        response_peer_id = ping_peer(peer_ip,peer_port,sha_info_hash,peer_id, s, True)
         print(f'Peer ID: {response_peer_id}')
         
     elif command == 'download_piece':
@@ -309,13 +285,13 @@ def main():
         info_dict = get_info_dict(decoded_value)
         sha_info_hash = get_sha_info(info_dict)
         
-        ip_addresses = get_peer_address_torrent(torrent_file)
+        ip_addresses = get_peer_address(url, info_dict['length'], sha_info_hash)
         peer_ip, peer_port = ip_addresses[0].split(':')
         peer_port = int(peer_port)
         
         peer_id = '3a5f9c1e2d4a8e3b0f6c'
         s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-        response_peer_id = ping_peer_torrent(peer_ip,peer_port,sha_info_hash,peer_id, s)
+        response_peer_id = ping_peer(peer_ip,peer_port,sha_info_hash,peer_id, s, True)
         
         total_length = info_dict['length']
         piece_length = info_dict['piece length']
@@ -360,13 +336,13 @@ def main():
         info_dict = get_info_dict(decoded_value)
         sha_info_hash = get_sha_info(info_dict)
         
-        ip_addresses = get_peer_address_torrent(torrent_file)
+        ip_addresses = get_peer_address(url, info_dict['length'], sha_info_hash)
         peer_ip, peer_port = ip_addresses[0].split(':')
         peer_port = int(peer_port)
         
         peer_id = '3a5f9c1e2d4a8e3b0f6c'
         s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-        response_peer_id = ping_peer_torrent(peer_ip,peer_port,sha_info_hash,peer_id, s)
+        response_peer_id = ping_peer(peer_ip,peer_port,sha_info_hash,peer_id, s, True)
         
         total_length = info_dict['length']
         piece_length = info_dict['piece length']
@@ -419,13 +395,13 @@ def main():
         url_location = magnet_link.find('tr=') + 3
         url = magnet_link[url_location:]  
         url = urllib.parse.unquote(url)
-        ip_addresses = get_peer_address_magnet(url,info_hash)
+        ip_addresses = get_peer_address(url, 999, info_hash)
         peer_ip, peer_port = ip_addresses[0].split(':')
         peer_port = int(peer_port)
         
         peer_id = '3a5f9c1e2d4a8e3b0f6c'
         s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-        response_peer_id = ping_peer_magnet(peer_ip,peer_port,info_hash,peer_id, s)
+        response_peer_id = ping_peer(peer_ip,peer_port,info_hash,peer_id, s, False)
         print(f'Peer ID: {response_peer_id}')
         
         # Bitfield
@@ -457,13 +433,13 @@ def main():
         url_location = magnet_link.find('tr=') + 3
         url = magnet_link[url_location:]  
         url = urllib.parse.unquote(url)
-        ip_addresses = get_peer_address_magnet(url,info_hash)
+        ip_addresses = get_peer_address(url, 999, info_hash)
         peer_ip, peer_port = ip_addresses[0].split(':')
         peer_port = int(peer_port)
         
         peer_id = '3a5f9c1e2d4a8e3b0f6c'
         s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-        response_peer_id = ping_peer_magnet(peer_ip,peer_port,info_hash,peer_id, s)
+        response_peer_id = ping_peer(peer_ip,peer_port,info_hash,peer_id, s, False)
         
         s.recv(4)
         s.recv(1)
@@ -483,6 +459,8 @@ def main():
         s.recv(1)
         s.recv(1)
         handshake_message = s.recv(payload_size)
+        handshake_message = decode_bencode(handshake_message)
+        peer_extension_id = handshake_info_dict[0]["m"]["ut_metadata"].to_bytes(1, byteorder='big')
         
         request_metadata = {
             'msg_type': 0,
@@ -492,7 +470,7 @@ def main():
         request_metadata = bencodepy.encode(request_metadata)
         s.sendall(integer_to_byte(len(request_metadata) + 2))
         s.sendall(b'\x14')
-        s.sendall(b'\x00')
+        s.sendall(peer_extension_id)
         s.sendall(request_metadata)
         
         payload_size = byte_to_integer(s.recv(4)) - 2
@@ -501,13 +479,106 @@ def main():
         handshake_message = decode_bencode(s.recv(payload_size))
         handshake_info_dict = decode_bencode(handshake_message[1])[0]
         print(f'Tracker URL: {url}')   
-        print(f'Length: {handshake_info_dict['length']}')
+        print(f'Length: {handshake_info_dict["length"]}')
         print(f'Info Hash: {info_hash}')
-        print(f'Piece Length: {handshake_info_dict['piece length']}')
+        print(f'Piece Length: {handshake_info_dict["piece length"]}')
         print(f'Piece Hashes:')
         piece_hashes = handshake_info_dict['pieces'].hex()
         print(piece_hashes)
-           
+        
+    elif command == 'magnet_download_piece':
+        download_location = sys.argv[3]
+        magnet_link = sys.argv[4]
+        piece = sys.argv[5]
+        piece = int(piece)
+        
+        info_hash_location = magnet_link.find('btih:') + 5
+        info_hash = magnet_link[info_hash_location:info_hash_location+40]
+        url_location = magnet_link.find('tr=') + 3
+        url = magnet_link[url_location:]  
+        url = urllib.parse.unquote(url)
+        ip_addresses = get_peer_address(url, 999, info_hash)
+        peer_ip, peer_port = ip_addresses[0].split(':')
+        peer_port = int(peer_port)
+        
+        peer_id = '3a5f9c1e2d4a8e3b0f6c'
+        s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+        response_peer_id = ping_peer(peer_ip,peer_port,info_hash,peer_id, s, False)
+        
+        recv_exact(s,4)
+        recv_exact(s,1)
+        recv_exact(s,4)
+        
+        magnet_dict = {"m": {
+            "ut_metadata": 18
+        }}
+        
+        encoded_magnet_dict = bencodepy.encode(magnet_dict)
+        s.sendall(integer_to_byte(len(encoded_magnet_dict) + 2))
+        s.sendall(b'\x14')
+        s.sendall(b'\x00')
+        s.sendall(encoded_magnet_dict)
+        
+        payload_size = byte_to_integer(recv_exact(s,4)) - 2
+        recv_exact(s,1)
+        recv_exact(s,1)
+        handshake_message = recv_exact(s,payload_size)
+        handshake_message = decode_bencode(handshake_message)
+        peer_extension_id = handshake_message[0]["m"]["ut_metadata"].to_bytes(1, byteorder='big')
+        
+        request_metadata = {
+            'msg_type': 0,
+            'piece': piece
+        }
+        
+        request_metadata = bencodepy.encode(request_metadata)
+        s.sendall(integer_to_byte(len(request_metadata) + 2))
+        s.sendall(b'\x14')
+        s.sendall(peer_extension_id)
+        s.sendall(request_metadata)
+        
+        payload_size = byte_to_integer(recv_exact(s,4)) - 2
+        recv_exact(s,1)
+        recv_exact(s,1)
+        handshake_message = decode_bencode(recv_exact(s,payload_size))
+        handshake_info_dict = decode_bencode(handshake_message[1])[0] 
+        total_length = handshake_info_dict["length"]
+        piece_length = handshake_info_dict["piece length"]
+        print(piece_length)
+    
+        # Bitfield
+        s.recv(4)
+        s.recv(1)
+        s.recv(4)
+        
+        print('Done')
+        
+        # Interested
+        s.sendall(b'\x00\x00\x00\x01')
+        s.sendall(b'\x02')
+
+        # Unchoke
+        recv_exact(4)
+        s.recv(1)
+        
+        
+        block_size = 2**14
+        curr_sent_data_size = 0
+        iterations = 0
+        
+        while curr_sent_data_size < piece_length:
+            data_size_to_send = min(block_size,piece_length-curr_sent_data_size)
+            curr_sent_data_size += data_size_to_send
+            send_data(s,piece,iterations*block_size,data_size_to_send)
+            iterations += 1
+        
+        result_data = b''
+        for i in range(0,iterations):
+            result_data += receive_data(s)
+        
+        with open(download_location, "wb") as f:  # Use "wb" for binary write mode
+            f.write(result_data)  # No need to decode
+    
     else:
         raise NotImplementedError(f"Unknown command {command}")   
 
