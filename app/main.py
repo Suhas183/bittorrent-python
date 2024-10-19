@@ -63,7 +63,7 @@ def decode_bencode(bencoded_value):
     elif chr(bencoded_value[0]) == 'd':
         return decode_dict(bencoded_value)    
     elif chr(bencoded_value[0]) == 'm':
-        return {"m": (decode_dict(bencoded_value[1:]), b'')}  
+        return ({"m": decode_dict(bencoded_value[1:])[0]}, b'')  
     else:
         raise NotImplementedError("Only strings and numbers are supported at the moment")
 
@@ -123,18 +123,6 @@ def ping_peer_magnet(peer_ip, peer_port, info_hash, peer_id, s):
 def ping_peer_magnet(peer_ip, peer_port, info_hash, peer_id, s):
     info_hash = bytes.fromhex(info_hash)
     s.connect((peer_ip,peer_port))
-    
-def get_peer_address_torrent(bencoded_file):
-    decoded_value = get_decoded_value(bencoded_file)
-    url = announce_url(decoded_value)
-    info_dict = get_info_dict(decoded_value)
-    sha_info_hash = get_sha_info(info_dict)
-
-def get_peer_address_torrent(bencoded_file):
-    decoded_value = get_decoded_value(bencoded_file)
-    url = announce_url(decoded_value)
-    info_dict = get_info_dict(decoded_value)
-    sha_info_hash = get_sha_info(info_dict)
 
 def get_peer_address(url, left, sha_info_hash):
     
@@ -175,6 +163,7 @@ def receive_large_data(s,size):
     
     while curr_size < size:
         data_size_to_receive = min(4096,size-curr_size)
+        print(data_size_to_receive)
         temp_data = s.recv(data_size_to_receive)
         curr_size += len(temp_data)
         result_data += temp_data
@@ -208,6 +197,7 @@ def recv_exact(sock, num_bytes):
             raise ConnectionError("Connection closed before receiving the expected number of bytes")
         received_data += chunk
     return received_data
+
 
 def main():
     command = sys.argv[1]
@@ -448,7 +438,8 @@ def main():
         s.recv(4)
         
         magnet_dict = {"m": {
-            "ut_metadata": 18
+            "ut_metadata": 18,
+            "ut_pex": 2
         }}
         
         encoded_magnet_dict = bencodepy.encode(magnet_dict)
@@ -507,9 +498,9 @@ def main():
         s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
         response_peer_id = ping_peer(peer_ip,peer_port,info_hash,peer_id, s, False)
         
-        recv_exact(s,4)
-        recv_exact(s,1)
-        recv_exact(s,4)
+        s.recv(4)
+        s.recv(1)
+        s.recv(4)
         
         magnet_dict = {"m": {
             "ut_metadata": 18
@@ -521,10 +512,10 @@ def main():
         s.sendall(b'\x00')
         s.sendall(encoded_magnet_dict)
         
-        payload_size = byte_to_integer(recv_exact(s,4)) - 2
-        recv_exact(s,1)
-        recv_exact(s,1)
-        handshake_message = recv_exact(s,payload_size)
+        payload_size = byte_to_integer(s.recv(4)) - 2
+        s.recv(1)
+        s.recv(1)
+        handshake_message = s.recv(payload_size)
         print(handshake_message)
         handshake_message = decode_bencode(handshake_message)
         print(handshake_message)
@@ -532,7 +523,7 @@ def main():
         
         request_metadata = {
             'msg_type': 0,
-            'piece': piece
+            'piece': 0
         }
         
         request_metadata = bencodepy.encode(request_metadata)
@@ -541,47 +532,51 @@ def main():
         s.sendall(peer_extension_id)
         s.sendall(request_metadata)
         
-        payload_size = byte_to_integer(recv_exact(s,4)) - 2
-        recv_exact(s,1)
-        recv_exact(s,1)
-        handshake_message = decode_bencode(recv_exact(s,payload_size))
-        handshake_info_dict = decode_bencode(handshake_message[1])[0] 
-        total_length = handshake_info_dict["length"]
-        piece_length = handshake_info_dict["piece length"]
-        print(piece_length)
-    
-        # # Bitfield
-        # s.recv(4)
-        # s.recv(1)
-        # s.recv(4)
-        
-        # print('Done')
-        
-        # Interested
-        s.sendall(b'\x00\x00\x00\x01')
-        s.sendall(b'\x02')
-
-        # Unchoke
-        s.recv(4)
+        temp = s.recv(4)
+        print(temp)
+        payload_size = byte_to_integer(temp) - 2
         s.recv(1)
+        s.recv(1)
+        handshake_message = decode_bencode(s.recv(payload_size))
+        print(handshake_message)
+        if handshake_message[0]['msg_type'] == 1:
+            handshake_info_dict = decode_bencode(handshake_message[1])[0] 
+            total_length = handshake_info_dict["length"]
+            piece_length = handshake_info_dict["piece length"]
+            print(piece_length)
         
-        
-        block_size = 2**14
-        curr_sent_data_size = 0
-        iterations = 0
-        
-        while curr_sent_data_size < piece_length:
-            data_size_to_send = min(block_size,piece_length-curr_sent_data_size)
-            curr_sent_data_size += data_size_to_send
-            send_data(s,piece,iterations*block_size,data_size_to_send)
-            iterations += 1
-        
-        result_data = b''
-        for i in range(0,iterations):
-            result_data += receive_data(s)
-        
-        with open(download_location, "wb") as f:  # Use "wb" for binary write mode
-            f.write(result_data)  # No need to decode
+            # # Bitfield
+            # s.recv(4)
+            # s.recv(1)
+            # s.recv(4)
+            
+            # print('Done')
+            
+            # Interested
+            s.sendall(b'\x00\x00\x00\x01')
+            s.sendall(b'\x02')
+
+            # Unchoke
+            s.recv(4)
+            s.recv(1)
+            
+            
+            block_size = 2**14
+            curr_sent_data_size = 0
+            iterations = 0
+            
+            while curr_sent_data_size < piece_length:
+                data_size_to_send = min(block_size,piece_length-curr_sent_data_size)
+                curr_sent_data_size += data_size_to_send
+                send_data(s,piece,iterations*block_size,data_size_to_send)
+                iterations += 1
+            
+            result_data = b''
+            for i in range(0,iterations):
+                result_data += receive_data(s)
+            
+            with open(download_location, "wb") as f:  # Use "wb" for binary write mode
+                f.write(result_data)  # No need to decode
     
     else:
         raise NotImplementedError(f"Unknown command {command}")   
