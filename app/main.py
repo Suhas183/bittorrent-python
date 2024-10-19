@@ -200,6 +200,15 @@ def receive_data(s):
     s.recv(4)
     return receive_large_data(s,payload_size-9)
 
+def recv_exact(sock, num_bytes):
+    received_data = b''
+    while len(received_data) < num_bytes:
+        chunk = sock.recv(num_bytes - len(received_data))
+        if not chunk:
+            raise ConnectionError("Connection closed before receiving the expected number of bytes")
+        received_data += chunk
+    return received_data
+
 def main():
     command = sys.argv[1]
 
@@ -498,9 +507,9 @@ def main():
         s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
         response_peer_id = ping_peer(peer_ip,peer_port,info_hash,peer_id, s, False)
         
-        s.recv(4)
-        s.recv(1)
-        s.recv(4)
+        recv_exact(s,4)
+        recv_exact(s,1)
+        recv_exact(s,4)
         
         magnet_dict = {"m": {
             "ut_metadata": 18
@@ -512,10 +521,10 @@ def main():
         s.sendall(b'\x00')
         s.sendall(encoded_magnet_dict)
         
-        payload_size = byte_to_integer(s.recv(4)) - 2
-        s.recv(1)
-        s.recv(1)
-        handshake_message = s.recv(payload_size)
+        payload_size = byte_to_integer(recv_exact(s,4)) - 2
+        recv_exact(s,1)
+        recv_exact(s,1)
+        handshake_message = recv_exact(s,payload_size)
         print(handshake_message)
         handshake_message = decode_bencode(handshake_message)
         print(handshake_message)
@@ -532,10 +541,10 @@ def main():
         s.sendall(peer_extension_id)
         s.sendall(request_metadata)
         
-        payload_size = byte_to_integer(s.recv(4)) - 2
-        s.recv(1)
-        s.recv(1)
-        handshake_message = decode_bencode(s.recv(payload_size))
+        payload_size = byte_to_integer(recv_exact(s,4)) - 2
+        recv_exact(s,1)
+        recv_exact(s,1)
+        handshake_message = decode_bencode(recv_exact(s,payload_size))
         handshake_info_dict = decode_bencode(handshake_message[1])[0] 
         total_length = handshake_info_dict["length"]
         piece_length = handshake_info_dict["piece length"]
