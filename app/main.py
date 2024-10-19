@@ -161,10 +161,12 @@ def receive_large_data(s,size):
     result_data = b''
     curr_size = 0
     
+    print(size)
     while curr_size < size:
         data_size_to_receive = min(4096,size-curr_size)
         print(data_size_to_receive)
         temp_data = s.recv(data_size_to_receive)
+        print(len(temp_data))
         curr_size += len(temp_data)
         result_data += temp_data
     return result_data
