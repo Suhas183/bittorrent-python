@@ -574,6 +574,100 @@ def main():
         with open(download_location, "wb") as f:  # Use "wb" for binary write mode
             f.write(result_data)  # No need to decode
     
+    elif command == 'magnet_download':
+        download_location = sys.argv[3]
+        magnet_link = sys.argv[4]
+        
+        info_hash_location = magnet_link.find('btih:') + 5
+        info_hash = magnet_link[info_hash_location:info_hash_location+40]
+        url_location = magnet_link.find('tr=') + 3
+        url = magnet_link[url_location:]  
+        url = urllib.parse.unquote(url)
+        ip_addresses = get_peer_address(url, 999, info_hash)
+        peer_ip, peer_port = ip_addresses[-1].split(':')
+        peer_port = int(peer_port)
+        
+        peer_id = '3a5f9c1e2d4a8e3b0f6c'
+        s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+        response_peer_id = ping_peer(peer_ip,peer_port,info_hash,peer_id, s, False)
+        
+        s.recv(4)
+        s.recv(1)
+        s.recv(4)
+        
+        magnet_dict = {"m": {
+            "ut_metadata": 18
+        }}
+        
+        encoded_magnet_dict = bencodepy.encode(magnet_dict)
+        s.sendall(integer_to_byte(len(encoded_magnet_dict) + 2))
+        s.sendall(b'\x14')
+        s.sendall(b'\x00')
+        s.sendall(encoded_magnet_dict)
+        
+        payload_size = byte_to_integer(s.recv(4)) - 2
+        s.recv(1)
+        s.recv(1)
+        handshake_message = s.recv(payload_size)
+        handshake_message = decode_bencode(handshake_message)
+        peer_extension_id = handshake_message[0]["m"]["ut_metadata"].to_bytes(1, byteorder='big')
+        
+        request_metadata = {
+            'msg_type': 0,
+            'piece': 0
+        }
+        
+        request_metadata = bencodepy.encode(request_metadata)
+        s.sendall(integer_to_byte(len(request_metadata) + 2))
+        s.sendall(b'\x14')
+        s.sendall(peer_extension_id)
+        s.sendall(request_metadata)
+        
+        payload_size = byte_to_integer(s.recv(4)) - 2
+        s.recv(1)
+        s.recv(1)
+        handshake_message = decode_bencode(s.recv(payload_size))
+        handshake_info_dict = decode_bencode(handshake_message[1])[0] 
+        print(handshake_info_dict)
+        total_length = handshake_info_dict["length"]
+        piece_length = handshake_info_dict["piece length"]
+        print(total_length)
+        print(piece_length)
+    
+        # # Bitfield
+        # s.recv(4)
+        # s.recv(1)
+        # s.recv(4)
+        
+        # print('Done')
+        
+        # Interested
+        s.sendall(b'\x00\x00\x00\x01')
+        s.sendall(b'\x02')
+
+        # Unchoke
+        s.recv(4)
+        s.recv(1)
+        
+        
+        for i in range(0,total_length,piece_length):
+            curr_piece_length = min(piece_length,total_length-i)
+            block_size = 2**14
+            curr_sent_data_size = 0
+            iterations = 0
+            
+            while curr_sent_data_size < curr_piece_length:
+                data_size_to_send = min(block_size,curr_piece_length-curr_sent_data_size)
+                curr_sent_data_size += data_size_to_send
+                send_data(s,i//piece_length,iterations*block_size,data_size_to_send)
+                iterations += 1
+        
+            result_data = b''
+            for i in range(0,iterations):
+                result_data += receive_data(s)
+            
+            with open(download_location, "ab") as f:
+                f.write(result_data)
     else:
         raise NotImplementedError(f"Unknown command {command}")   
 
