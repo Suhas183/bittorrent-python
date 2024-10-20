@@ -8,10 +8,25 @@ import socket
 import struct
 import urllib.parse
 
-# Examples:
-#
-# - decode_bencode(b"5:hello") -> b"hello"
-# - decode_bencode(b"10:hello12345") -> b"hello12345"
+
+'''
+    Writing a custom decode_bencode function
+'''    
+def decode_bencode(bencoded_value):
+    if chr(bencoded_value[0]).isdigit(): #Strings
+        return decode_string(bencoded_value)
+    elif chr(bencoded_value[0]) == 'i': #Integers
+        return decode_integer(bencoded_value)
+    elif chr(bencoded_value[0]) == 'l': #Lists
+        return decode_list(bencoded_value)    
+    elif chr(bencoded_value[0]) == 'd': #Dictionary
+        return decode_dict(bencoded_value)    
+    elif chr(bencoded_value[0]) == 'm':
+        return ({"m": decode_dict(bencoded_value[1:])[0]}, b'')  
+    else:
+        raise NotImplementedError("Only strings and numbers are supported at the moment")
+
+
 def decode_string(bencoded_value):
     first_colon_index = bencoded_value.find(b":")
     if first_colon_index == -1:
@@ -51,22 +66,7 @@ def decode_dict(bencoded_value):
         decoded_dict[key] = value
     
     return decoded_dict, bencoded_value[i+1:]     
-    
-
-def decode_bencode(bencoded_value):
-    if chr(bencoded_value[0]).isdigit():
-        return decode_string(bencoded_value)
-    elif chr(bencoded_value[0]) == 'i':
-        return decode_integer(bencoded_value)
-    elif chr(bencoded_value[0]) == 'l':
-        return decode_list(bencoded_value)    
-    elif chr(bencoded_value[0]) == 'd':
-        return decode_dict(bencoded_value)    
-    elif chr(bencoded_value[0]) == 'm':
-        return ({"m": decode_dict(bencoded_value[1:])[0]}, b'')  
-    else:
-        raise NotImplementedError("Only strings and numbers are supported at the moment")
-
+  
 def get_decoded_value(bencoded_file):
     f = open(bencoded_file, "rb")
     bencoded_value = f.read()
@@ -88,46 +88,13 @@ def url_encode(info_hash):
     split_string = ''.join(['%' + info_hash[i:i+2] for i in range(0,len(info_hash),2)])
     return split_string
 
-def ping_peer(peer_ip, peer_port, info_hash, peer_id, s, torrent_file):
-    info_hash = bytes.fromhex(info_hash)
-    s.connect((peer_ip,peer_port))
-        
-    protocol_length = 19
-    protocol_length_bytes = protocol_length.to_bytes(1,byteorder='big')
-    s.sendall(protocol_length_bytes)
-    
-    message = 'BitTorrent protocol'
-    s.sendall(message.encode('utf-8'))
-    
-    reserved_bytes = b''
-    if torrent_file:
-        reserved_bytes = b'\x00' * 8
-    else:
-        reserved_bytes = b'\x00\x00\x00\x00\x00\x10\x00\x00'   
-    
-    s.sendall(reserved_bytes)
-    s.sendall(info_hash)
-    s.sendall(peer_id.encode('utf-8'))
-
-    s.recv(1)
-    s.recv(19)
-    s.recv(8)
-    s.recv(20)
-    return s.recv(20).hex()
-
-
-def ping_peer_magnet(peer_ip, peer_port, info_hash, peer_id, s):
-    info_hash = bytes.fromhex(info_hash)
-    s.connect((peer_ip,peer_port))
-    
-def ping_peer_magnet(peer_ip, peer_port, info_hash, peer_id, s):
-    info_hash = bytes.fromhex(info_hash)
-    s.connect((peer_ip,peer_port))
-
+'''
+    This function is to obtain the ip addresses of the peers
+'''
 def get_peer_address(url, left, sha_info_hash):
     
     encoded_hash = url_encode(sha_info_hash)
-    peer_id = '3a5f9c1e2d4a8e3b0f6c'
+    peer_id = '3a5f9c1e2d4a8e3b0f6c' #Random peer id, 20 bytes
     port = 6881
     uploaded = 0
     downloaded = 0
@@ -155,7 +122,35 @@ def get_peer_address(url, left, sha_info_hash):
         ip_address += f":{int.from_bytes(decimal_values[i+4:i+6], byteorder='big', signed=False)}"
         ip_address_list.append(ip_address)
      
-    return ip_address_list  
+    return ip_address_list
+  
+def ping_peer(peer_ip, peer_port, info_hash, peer_id, s, torrent_file):
+    info_hash = bytes.fromhex(info_hash)
+    s.connect((peer_ip,peer_port))
+        
+    protocol_length = 19 #Length of the protocol string
+    protocol_length_bytes = protocol_length.to_bytes(1,byteorder='big') #Converting integer to bytes
+    s.sendall(protocol_length_bytes)
+    
+    message = 'BitTorrent protocol'
+    s.sendall(message.encode('utf-8'))
+    
+    reserved_bytes = b''
+    if torrent_file:
+        reserved_bytes = b'\x00' * 8 #All 0s for Torrent files
+    else:
+        reserved_bytes = b'\x00\x00\x00\x00\x00\x10\x00\x00'  #20th bit from right is set for Magnet links 
+    
+    s.sendall(reserved_bytes)
+    s.sendall(info_hash)
+    s.sendall(peer_id.encode('utf-8'))
+
+    s.recv(1) #Protocol length
+    s.recv(19) #Protocol message
+    s.recv(8) #Reserved bytes
+    s.recv(20) #Infohash
+    return s.recv(20).hex() #Peer ID
+
 
 def receive_large_data(s,size):
     result_data = b''
@@ -187,16 +182,6 @@ def receive_data(s):
     s.recv(4)
     s.recv(4)
     return receive_large_data(s,payload_size-9)
-
-def recv_exact(sock, num_bytes):
-    received_data = b''
-    while len(received_data) < num_bytes:
-        chunk = sock.recv(num_bytes - len(received_data))
-        if not chunk:
-            raise ConnectionError("Connection closed before receiving the expected number of bytes")
-        received_data += chunk
-    return received_data
-
 
 def main():
     command = sys.argv[1]
@@ -301,6 +286,7 @@ def main():
         s.recv(4)
         s.recv(1)
         
+        #Send 16kb of blocks at a time
         block_size = 2**14
         curr_sent_data_size = 0
         iterations = 0
@@ -534,19 +520,9 @@ def main():
         s.recv(1)
         handshake_message = decode_bencode(s.recv(payload_size))
         handshake_info_dict = decode_bencode(handshake_message[1])[0] 
-        print(handshake_info_dict)
         total_length = handshake_info_dict["length"]
         piece_length = handshake_info_dict["piece length"]
         piece_length = min(piece_length, total_length - piece*piece_length)
-        print(total_length)
-        print(piece_length)
-    
-        # # Bitfield
-        # s.recv(4)
-        # s.recv(1)
-        # s.recv(4)
-        
-        # print('Done')
         
         # Interested
         s.sendall(b'\x00\x00\x00\x01')
@@ -555,7 +531,6 @@ def main():
         # Unchoke
         s.recv(4)
         s.recv(1)
-        
         
         block_size = 2**14
         curr_sent_data_size = 0
@@ -628,18 +603,8 @@ def main():
         s.recv(1)
         handshake_message = decode_bencode(s.recv(payload_size))
         handshake_info_dict = decode_bencode(handshake_message[1])[0] 
-        print(handshake_info_dict)
         total_length = handshake_info_dict["length"]
         piece_length = handshake_info_dict["piece length"]
-        print(total_length)
-        print(piece_length)
-    
-        # # Bitfield
-        # s.recv(4)
-        # s.recv(1)
-        # s.recv(4)
-        
-        # print('Done')
         
         # Interested
         s.sendall(b'\x00\x00\x00\x01')
