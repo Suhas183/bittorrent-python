@@ -161,15 +161,11 @@ def receive_large_data(s,size):
     result_data = b''
     curr_size = 0
     
-    print(size)
     while curr_size < size:
         data_size_to_receive = min(4096,size-curr_size)
-        print(data_size_to_receive)
         temp_data = s.recv(data_size_to_receive)
-        print(len(temp_data))
         curr_size += len(temp_data)
         result_data += temp_data
-        print(curr_size)
     return result_data
 
 def integer_to_byte(integer):
@@ -456,11 +452,11 @@ def main():
         s.recv(1)
         handshake_message = s.recv(payload_size)
         handshake_message = decode_bencode(handshake_message)
-        peer_extension_id = handshake_info_dict[0]["m"]["ut_metadata"].to_bytes(1, byteorder='big')
+        peer_extension_id = handshake_message[0]["m"]["ut_metadata"].to_bytes(1, byteorder='big')
         
         request_metadata = {
             'msg_type': 0,
-            'piece': piece
+            'piece': 0
         }
         
         request_metadata = bencodepy.encode(request_metadata)
@@ -519,14 +515,12 @@ def main():
         s.recv(1)
         s.recv(1)
         handshake_message = s.recv(payload_size)
-        print(handshake_message)
         handshake_message = decode_bencode(handshake_message)
-        print(handshake_message)
         peer_extension_id = handshake_message[0]["m"]["ut_metadata"].to_bytes(1, byteorder='big')
         
         request_metadata = {
             'msg_type': 0,
-            'piece': piece
+            'piece': 0
         }
         
         request_metadata = bencodepy.encode(request_metadata)
@@ -535,51 +529,50 @@ def main():
         s.sendall(peer_extension_id)
         s.sendall(request_metadata)
         
-        temp = s.recv(4)
-        print(temp)
-        payload_size = byte_to_integer(temp) - 2
+        payload_size = byte_to_integer(s.recv(4)) - 2
         s.recv(1)
         s.recv(1)
         handshake_message = decode_bencode(s.recv(payload_size))
-        print(handshake_message)
-        if handshake_message[0]['msg_type'] == 1:
-            handshake_info_dict = decode_bencode(handshake_message[1])[0] 
-            total_length = handshake_info_dict["length"]
-            piece_length = handshake_info_dict["piece length"]
-            print(piece_length)
+        handshake_info_dict = decode_bencode(handshake_message[1])[0] 
+        print(handshake_info_dict)
+        total_length = handshake_info_dict["length"]
+        piece_length = handshake_info_dict["piece length"]
+        piece_length = min(piece_length, total_length - piece*piece_length)
+        print(total_length)
+        print(piece_length)
+    
+        # # Bitfield
+        # s.recv(4)
+        # s.recv(1)
+        # s.recv(4)
         
-            # # Bitfield
-            # s.recv(4)
-            # s.recv(1)
-            # s.recv(4)
-            
-            # print('Done')
-            
-            # Interested
-            s.sendall(b'\x00\x00\x00\x01')
-            s.sendall(b'\x02')
+        # print('Done')
+        
+        # Interested
+        s.sendall(b'\x00\x00\x00\x01')
+        s.sendall(b'\x02')
 
-            # Unchoke
-            s.recv(4)
-            s.recv(1)
-            
-            
-            block_size = 2**14
-            curr_sent_data_size = 0
-            iterations = 0
-            
-            while curr_sent_data_size < piece_length:
-                data_size_to_send = min(block_size,piece_length-curr_sent_data_size)
-                curr_sent_data_size += data_size_to_send
-                send_data(s,piece,iterations*block_size,data_size_to_send)
-                iterations += 1
-            
-            result_data = b''
-            for i in range(0,iterations):
-                result_data += receive_data(s)
-            
-            with open(download_location, "wb") as f:  # Use "wb" for binary write mode
-                f.write(result_data)  # No need to decode
+        # Unchoke
+        s.recv(4)
+        s.recv(1)
+        
+        
+        block_size = 2**14
+        curr_sent_data_size = 0
+        iterations = 0
+        
+        while curr_sent_data_size < piece_length:
+            data_size_to_send = min(block_size,piece_length-curr_sent_data_size)
+            curr_sent_data_size += data_size_to_send
+            send_data(s,piece,iterations*block_size,data_size_to_send)
+            iterations += 1
+        
+        result_data = b''
+        for i in range(0,iterations):
+            result_data += receive_data(s)
+        
+        with open(download_location, "wb") as f:  # Use "wb" for binary write mode
+            f.write(result_data)  # No need to decode
     
     else:
         raise NotImplementedError(f"Unknown command {command}")   
